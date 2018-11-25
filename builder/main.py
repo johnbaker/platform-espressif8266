@@ -15,6 +15,7 @@
 # pylint: disable=redefined-outer-name
 
 import re
+import socket
 from os.path import join
 
 
@@ -141,50 +142,6 @@ env.Replace(
 
     ARFLAGS=["rc"],
 
-    ASFLAGS=["-x", "assembler-with-cpp"],
-
-    CFLAGS=[
-        "-std=gnu99",
-        "-Wpointer-arith",
-        "-Wno-implicit-function-declaration",
-        "-Wl,-EL",
-        "-fno-inline-functions",
-        "-nostdlib"
-    ],
-
-    CCFLAGS=[
-        "-Os",  # optimize for size
-        "-mlongcalls",
-        "-mtext-section-literals",
-        "-falign-functions=4",
-        "-U__STRICT_ANSI__",
-        "-ffunction-sections",
-        "-fdata-sections"
-    ],
-
-    CXXFLAGS=[
-        "-fno-rtti",
-        "-fno-exceptions",
-        "-std=c++11"
-    ],
-
-    CPPDEFINES=[
-        ("F_CPU", "$BOARD_F_CPU"),
-        "__ets__",
-        "ICACHE_FLASH"
-    ],
-
-    LINKFLAGS=[
-        "-Os",
-        "-nostdlib",
-        "-Wl,--no-check-sections",
-        "-u", "call_user_start",
-        "-u", "_printf_float",
-        "-u", "_scanf_float",
-        "-Wl,-static",
-        "-Wl,--gc-sections"
-    ],
-
     #
     # Packages
     #
@@ -228,10 +185,6 @@ env.Replace(
     SIZEPRINTCMD='$SIZETOOL -B -d $SOURCES',
 
     PROGSUFFIX=".elf"
-)
-
-env.Append(
-    ASFLAGS=env.get("CCFLAGS", [])[:]
 )
 
 if int(ARGUMENTS.get("PIOVERBOSE", 0)):
@@ -309,54 +262,14 @@ if env.subst("$PIOFRAMEWORK") in ("arduino", "simba"):
     # Handle uploading via OTA
     ota_port = None
     if env.get("UPLOAD_PORT"):
-        ota_port = re.match(
-            r"\"?((([0-9]{1,3}\.){3}[0-9]{1,3})|[^\\/]+\.[^\\/]+)\"?$",
-            env.get("UPLOAD_PORT"))
+        try:
+            ota_port = socket.gethostbyname(env.get("UPLOAD_PORT"))
+        except socket.error:
+            pass
     if ota_port:
         env.Replace(UPLOADCMD="$UPLOADOTACMD")
 
 else:
-    upload_address = None
-    if env.subst("$PIOFRAMEWORK") == "esp8266-rtos-sdk":
-        env.Replace(
-            UPLOAD_ADDRESS="0x20000",
-        )
-
-    # Configure NONOS SDK
-    elif env.subst("$PIOFRAMEWORK") == "esp8266-nonos-sdk":
-        env.Append(
-            CPPPATH=[
-                join("$SDK_ESP8266_DIR", "include"), "$PROJECTSRC_DIR"
-            ],
-            CCFLAGS=[
-                "-fno-builtin-printf",
-            ]
-        )
-        env.Replace(
-            UPLOAD_ADDRESS="0x10000",
-        )
-
-    # Configure Native SDK
-    else:
-        env.Append(
-            CPPPATH=[
-                join("$SDK_ESP8266_DIR", "include"), "$PROJECTSRC_DIR"
-            ],
-
-            LIBPATH=[
-                join("$SDK_ESP8266_DIR", "lib"),
-                join("$SDK_ESP8266_DIR", "ld")
-            ],
-        )
-        env.Replace(
-            LIBS=[
-                "c", "gcc", "phy", "pp", "net80211", "lwip", "wpa", "wpa2",
-                "main", "wps", "crypto", "json", "ssl", "pwm", "upgrade",
-                "smartconfig", "airkiss", "at"
-            ],
-            UPLOAD_ADDRESS="0X40000"
-        )
-
     # ESP8266 RTOS SDK and Native SDK common configuration
     env.Append(
         BUILDERS=dict(
@@ -394,6 +307,9 @@ else:
         ],
         UPLOADCMD='$UPLOADER $UPLOADERFLAGS',
     )
+
+if not env.get("PIOFRAMEWORK"):
+    env.SConscript("frameworks/_bare.py", exports="env")
 
 #
 # Target: Build executable and linkable firmware or SPIFFS image
